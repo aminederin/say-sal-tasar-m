@@ -1,0 +1,243 @@
+import sys
+from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QAction, QMenu, QGraphicsItem, \
+    QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsLineItem, QGraphicsSimpleTextItem, QColorDialog, QInputDialog, \
+    QGraphicsPixmapItem, QPushButton, QMessageBox, QVBoxLayout, QWidget, QRadioButton, QLabel, QCheckBox, QLineEdit
+from PyQt5.QtGui import QPainter, QBrush, QPen, QColor, QPixmap
+from PyQt5.QtCore import Qt, QLineF
+
+
+class LogicGate(QGraphicsRectItem):
+    def __init__(self, gate_type, label):
+        super().__init__(0, 0, 80, 40)
+        self.gate_type = gate_type
+        self.label = label
+        self.setBrush(QBrush(Qt.white))
+        self.setPen(QPen(Qt.black, 2))
+        self.setFlag(QGraphicsItem.ItemIsMovable)
+        self.setFlag(QGraphicsItem.ItemIsSelectable)
+        self.setAcceptHoverEvents(True)
+        self.text = QGraphicsSimpleTextItem(label, self)
+        self.text.setPos(20, 10)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu()
+        label_action = menu.addAction("Etiketi Ayarla")
+
+        action = menu.exec_(event.screenPos())
+
+        if action == label_action:
+            text, ok = QInputDialog.getText(None, "Etiketi Ayarla", "Yeni etiketi girin:")
+            if ok:
+                self.text.setText(text)
+                self.label = text
+
+
+class IOElement(QGraphicsEllipseItem):
+    def __init__(self, io_type, label):
+        super().__init__(0, 0, 50, 50)
+        self.io_type = io_type
+        self.label = label
+        self.setBrush(QBrush(Qt.green if io_type == 'Giriş' else Qt.red))
+        self.setPen(QPen(Qt.black, 2))
+        self.setFlag(QGraphicsItem.ItemIsMovable)
+        self.setFlag(QGraphicsItem.ItemIsSelectable)
+        self.setAcceptHoverEvents(True)
+        self.text = QGraphicsSimpleTextItem(label, self)
+        self.text.setPos(15, 15)
+        self.value = 0 if io_type == 'Giriş' else None
+
+    def contextMenuEvent(self, event):
+        menu = QMenu()
+        label_action = menu.addAction("Etiketi Ayarla")
+        color_action = menu.addAction("Rengi Ayarla")
+
+        if self.io_type == 'Giriş':
+            value_action = menu.addAction("Başlangıç Değerini Ayarla")
+
+        action = menu.exec_(event.screenPos())
+
+        if action == label_action:
+            text, ok = QInputDialog.getText(None, "Etiketi Ayarla", "Yeni etiketi girin:")
+            if ok:
+                self.text.setText(text)
+                self.label = text
+        elif action == color_action:
+            color = QColorDialog.getColor()
+            if color.isValid():
+                self.setBrush(QBrush(color))
+        elif action == value_action and self.io_type == 'Giriş':
+            value, ok = QInputDialog.getInt(None, "Başlangıç Değerini Ayarla", "Başlangıç değeri (0 veya 1):", 0, 0, 1)
+            if ok:
+                self.value = value
+
+
+class Connection(QGraphicsLineItem):
+    def __init__(self, start_item, end_item, label):
+        super().__init__()
+        self.start_item = start_item
+        self.end_item = end_item
+        self.label = label
+        self.setPen(QPen(Qt.black, 2))
+        self.setFlag(QGraphicsItem.ItemIsSelectable)
+        self.update_position()
+        self.text = QGraphicsSimpleTextItem(label, self)
+        self.text.setPos((self.start_item.pos() + self.end_item.pos()) / 2)
+
+    def update_position(self):
+        line = QLineF(self.start_item.sceneBoundingRect().center(), self.end_item.sceneBoundingRect().center())
+        self.setLine(line)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu()
+        label_action = menu.addAction("Etiketi Ayarla")
+        color_action = menu.addAction("Rengi Ayarla")
+
+        action = menu.exec_(event.screenPos())
+
+        if action == label_action:
+            text, ok = QInputDialog.getText(None, "Etiketi Ayarla", "Yeni etiketi girin:")
+            if ok:
+                self.text.setText(text)
+                self.label = text
+        elif action == color_action:
+            color = QColorDialog.getColor()
+            if color.isValid():
+                self.setPen(QPen(color, 2))
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Mantık Devresi Tasarlayıcı")
+        self.setGeometry(100, 100, 1200, 800)
+
+        self.scene = QGraphicsScene()
+        self.view = QGraphicsView(self.scene, self)
+        self.setCentralWidget(self.view)
+        self.createActions()
+        self.createMenus()
+        self.createToolbar()
+
+        self.gates = []
+        self.connections = []
+        self.io_elements = []
+        self.current_connection = None
+        self.connection_start = None
+
+    def createActions(self):
+        self.add_and_gate_action = QAction("AND Kapısı Ekle", self)
+        self.add_and_gate_action.triggered.connect(lambda: self.add_gate("AND"))
+
+        self.add_or_gate_action = QAction("OR Kapısı Ekle", self)
+        self.add_or_gate_action.triggered.connect(lambda: self.add_gate("OR"))
+
+        self.add_not_gate_action = QAction("NOT Kapısı Ekle", self)
+        self.add_not_gate_action.triggered.connect(lambda: self.add_gate("NOT"))
+
+        self.add_input_action = QAction("Giriş Ekle", self)
+        self.add_input_action.triggered.connect(lambda: self.add_io("Giriş"))
+
+        self.add_output_action = QAction("Çıkış Ekle", self)
+        self.add_output_action.triggered.connect(lambda: self.add_io("Çıkış"))
+
+        self.add_led_action = QAction("LED Ekle", self)
+        self.add_led_action.triggered.connect(lambda: self.add_io("LED"))
+
+        self.add_connection_action = QAction("Bağlantı Ekle", self)
+        self.add_connection_action.triggered.connect(self.start_connection)
+
+        self.run_simulation_action = QAction("Simülasyonu Başlat", self)
+        self.run_simulation_action.triggered.connect(self.run_simulation)
+
+        self.reset_simulation_action = QAction("Simülasyonu Sıfırla", self)
+        self.reset_simulation_action.triggered.connect(self.reset_simulation)
+
+        self.stop_simulation_action = QAction("Simülasyonu Durdur", self)
+        self.stop_simulation_action.triggered.connect(self.stop_simulation)
+
+    def createMenus(self):
+        self.menuBar().setNativeMenuBar(False)
+        self.file_menu = self.menuBar().addMenu("&Dosya")
+        self.file_menu.addAction(self.run_simulation_action)
+        self.file_menu.addAction(self.reset_simulation_action)
+        self.file_menu.addAction(self.stop_simulation_action)
+
+        self.edit_menu = self.menuBar().addMenu("&Düzenle")
+        self.edit_menu.addAction(self.add_and_gate_action)
+        self.edit_menu.addAction(self.add_or_gate_action)
+        self.edit_menu.addAction(self.add_not_gate_action)
+        self.edit_menu.addAction(self.add_input_action)
+        self.edit_menu.addAction(self.add_output_action)
+        self.edit_menu.addAction(self.add_led_action)
+        self.edit_menu.addAction(self.add_connection_action)
+
+    def createToolbar(self):
+        self.toolbar = self.addToolBar("Toolbar")
+        self.toolbar.addAction(self.run_simulation_action)
+        self.toolbar.addAction(self.reset_simulation_action)
+        self.toolbar.addAction(self.stop_simulation_action)
+
+        self.toolbar.addSeparator()
+
+        self.toolbar.addAction(self.add_and_gate_action)
+        self.toolbar.addAction(self.add_or_gate_action)
+        self.toolbar.addAction(self.add_not_gate_action)
+        self.toolbar.addAction(self.add_input_action)
+        self.toolbar.addAction(self.add_output_action)
+        self.toolbar.addAction(self.add_led_action)
+        self.toolbar.addAction(self.add_connection_action)
+
+    def add_gate(self, gate_type):
+        label, ok = QInputDialog.getText(self, "Kapı Etiketi", "Etiketi girin:")
+        if ok:
+            gate = LogicGate(gate_type, label)
+            self.scene.addItem(gate)
+            self.gates.append(gate)
+            return gate
+
+    def add_io(self, io_type):
+        label, ok = QInputDialog.getText(self, "IO Etiketi", "Etiketi girin:")
+        if ok:
+            io_element = IOElement(io_type, label)
+            self.scene.addItem(io_element)
+            self.io_elements.append(io_element)
+            return io_element
+
+    def start_connection(self):
+        self.connection_start = None
+
+    def mousePressEvent(self, event):
+        if self.connection_start is None:
+            items = self.view.items(event.pos())
+            for item in items:
+                if isinstance(item, (LogicGate, IOElement)):
+                    self.connection_start = item
+                    break
+        else:
+            items = self.view.items(event.pos())
+            for item in items:
+                if isinstance(item, (LogicGate, IOElement)):
+                    connection_label, ok = QInputDialog.getText(self, "Bağlantı Etiketi", "Etiketi girin:")
+                    if ok:
+                        connection = Connection(self.connection_start, item, connection_label)
+                        self.scene.addItem(connection)
+                        self.connections.append(connection)
+                        self.connection_start = None
+                        break
+        super().mousePressEvent(event)
+
+    def run_simulation(self):
+        QMessageBox.information(self, "Simülasyon", "Simülasyon başlatıldı!")
+
+    def reset_simulation(self):
+        QMessageBox.information(self, "Simülasyon", "Simülasyon sıfırlandı!")
+
+    def stop_simulation(self):
+        QMessageBox.information(self, "Simülasyon", "Simülasyon durduruldu!")
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    main_win = MainWindow()
+    main_win.show()
+    sys.exit(app.exec_())
